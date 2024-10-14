@@ -1,0 +1,9 @@
+// Static tasks configuration.
+//
+// Example:
+[
+  {
+    "label": "deno task start",
+    "command": "deno task start"
+  }
+]

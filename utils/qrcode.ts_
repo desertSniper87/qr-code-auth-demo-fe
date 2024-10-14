@@ -1,0 +1,73 @@
+import { qrcode } from "https://deno.land/x/qrcode/mod.ts";
+
+export async function generateQRCode(data: string): Promise<string> {
+  return await qrcode(data);
+}
+
+// routes/index.tsx
+import { Handlers, PageProps } from "$fresh/server.ts";
+import { generateQRCode } from "../utils/qrcode.ts";
+
+interface HomeProps {
+  challenge: string;
+  qrCode: string;
+}
+
+export const handler: Handlers<HomeProps> = {
+  async GET(req, ctx) {
+    const BASE_URL = Deno.env.get("BASE_URL") || "http://localhost:8000";
+
+    // Step 1: Get challenge
+    const challengeResponse = await fetch(`${BASE_URL}/qr-code/challenge`);
+    const { challenge } = await challengeResponse.json();
+
+    // Generate QR code
+    const qrCodeData = `${BASE_URL}/qr-code/register?challenge=${challenge}`;
+    const qrCode = await generateQRCode(qrCodeData);
+
+    return ctx.render({ challenge, qrCode });
+  },
+};
+
+export default function Home({ data }: PageProps<HomeProps>) {
+  return (
+    <div>
+      <h1>Passwordless Login Demo</h1>
+      <div>
+        <img src={`data:image/svg+xml;base64,${btoa(data.qrCode)}`} alt="QR Code" />
+      </div>
+      <form onSubmit={(e) => e.preventDefault()}>
+        <input type="text" id="username" placeholder="Username" required />
+        <button type="button" onClick={() => initiateLogin(data.challenge)}>Login</button>
+      </form>
+      <div id="status"></div>
+      <script dangerouslySetInnerHTML={{ __html: `
+        function initiateLogin(challenge) {
+          const username = document.getElementById('username').value;
+          const BASE_URL = '${Deno.env.get("BASE_URL") || "http://localhost:8000"}';
+
+          // Step 2: Register
+          fetch(BASE_URL + '/qr-code/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ challenge, username })
+          }).then(() => {
+            // Step 4: Establish WebSocket connection
+            const ws = new WebSocket(BASE_URL.replace('http', 'ws') + '/qr-code/verify');
+            ws.onopen = () => {
+              ws.send(JSON.stringify({ challenge }));
+            };
+            ws.onmessage = (event) => {
+              const { status, token } = JSON.parse(event.data);
+              if (status === 'verified') {
+                document.getElementById('status').textContent = 'Verified! Redirecting...';
+                localStorage.setItem('auth_token', token);
+                setTimeout(() => window.location.href = '/dashboard', 1000);
+              }
+            };
+          });
+        }
+      ` }}/>
+    </div>
+  );
+}
